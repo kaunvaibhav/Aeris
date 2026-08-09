@@ -1,0 +1,753 @@
+package com.runanywhere.kotlin_starter_example.ui.screens
+
+import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.*
+import androidx.compose.ui.zIndex
+import com.runanywhere.kotlin_starter_example.data.SettingsRepository
+import com.runanywhere.kotlin_starter_example.data.SoundType
+import com.runanywhere.kotlin_starter_example.services.AudioForegroundService
+import com.runanywhere.kotlin_starter_example.services.ModelService
+import com.runanywhere.kotlin_starter_example.viewmodel.MainViewModel
+
+@Composable
+fun HomeScreen(
+    viewModel: MainViewModel,
+    modelService: ModelService,
+    onSettings: () -> Unit,
+    onHaptics: () -> Unit
+) {
+    val context = LocalContext.current
+
+    val sound: SoundType? by viewModel.currentSound.collectAsState(initial = null)
+    val confidence by viewModel.confidence.collectAsState()
+    val walkthroughCompleted by SettingsRepository.walkthroughCompleted.collectAsState()
+    
+    var isOn by remember { mutableStateOf(AudioForegroundService.isRunning) }
+    var showWalkthrough by remember { mutableStateOf(false) }
+
+    // Start walkthrough automatically if not completed
+    LaunchedEffect(walkthroughCompleted) {
+        if (!walkthroughCompleted) {
+            showWalkthrough = true
+        }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (isOn) 1.08f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
+    val softBlueStart = Color(0xFF6FB1FC)
+    val softBlueEnd   = Color(0xFFA7C6FF)
+    val alertRed      = Color(0xFFFF6B6B)
+    val currentSound  = sound
+
+    val statusColor = when {
+        currentSound != null && isOn -> alertRed
+        isOn                         -> softBlueStart
+        else                         -> Color(0xFFB0B0B0)
+    }
+
+    val statusText = when {
+        !isOn                -> "System Off"
+        currentSound != null -> "${currentSound.name} Detected"
+        else                 -> "Listening…"
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF8F9FA))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+
+            // ── Header ──────────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Brush.linearGradient(listOf(softBlueStart, softBlueEnd)))
+                    .padding(horizontal = 24.dp, vertical = 28.dp)
+            ) {
+                Column {
+                    Text(
+                        text = "Aeris",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Making sound visible",
+                        fontSize = 14.sp,
+                        color = Color.White.copy(alpha = 0.82f)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(36.dp))
+
+            // ── Toggle ───────────────────────────────────────────
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(140.dp)
+                    .scale(pulseScale)
+                    .shadow(
+                        elevation = if (isOn) 20.dp else 6.dp,
+                        shape = CircleShape,
+                        ambientColor = softBlueStart.copy(alpha = 0.4f),
+                        spotColor = softBlueStart.copy(alpha = 0.4f)
+                    )
+                    .clip(CircleShape)
+                    .background(
+                        if (isOn)
+                            Brush.radialGradient(listOf(softBlueStart, softBlueEnd))
+                        else
+                            Brush.radialGradient(
+                                listOf(Color(0xFFDDE3EE), Color(0xFFB8C0D0))
+                            )
+                    )
+                    .clickable {
+                        isOn = !isOn
+                        if (isOn) {
+                            context.startForegroundService(
+                                Intent(context, AudioForegroundService::class.java)
+                            )
+                            viewModel.startDetectionListener(context)
+                        } else {
+                            context.stopService(
+                                Intent(context, AudioForegroundService::class.java)
+                            )
+                        }
+                    }
+            ) {
+                Icon(
+                    imageVector = if (isOn) Icons.Default.Mic else Icons.Default.MicOff,
+                    contentDescription = "Toggle",
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+
+            Spacer(Modifier.height(28.dp))
+
+            // ── Status Card ──────────────────────────────────────
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(statusColor.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                !isOn                -> Icons.Default.MicOff
+                                currentSound != null -> Icons.Default.Warning
+                                else                 -> Icons.Default.GraphicEq
+                            },
+                            contentDescription = null,
+                            tint = statusColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = statusText,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF1A2340)
+                        )
+                        Text(
+                            text = if (isOn) {
+                                if (currentSound != null) "$confidence% confidence" else "System active"
+                            } else "Tap toggle to start",
+                            fontSize = 12.sp,
+                            color = Color(0xFF6B7A9A)
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(statusColor)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(28.dp))
+
+            // ── Quick Actions ────────────────────────────────────
+            Text(
+                text = "Quick Actions",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF6B7A9A),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                QuickActionCard(
+                    icon = Icons.Default.Tune,
+                    label = "Sensitivity",
+                    modifier = Modifier.weight(1f),
+                    onClick = onSettings
+                )
+                QuickActionCard(
+                    icon = Icons.Default.Vibration,
+                    label = "Haptics",
+                    modifier = Modifier.weight(1f),
+                    onClick = onHaptics
+                )
+            }
+
+            Spacer(Modifier.height(28.dp))
+
+            // ── AI Models Section ────────────────────────────────
+            ModelDownloadSection(modelService = modelService)
+
+            Spacer(Modifier.height(32.dp))
+        }
+
+        // ── Walkthrough Overlay ───────────────────────────────
+        AnimatedVisibility(
+            visible = showWalkthrough,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.zIndex(100f)
+        ) {
+            WalkthroughOverlay(
+                onDismiss = {
+                    showWalkthrough = false
+                    SettingsRepository.setWalkthroughCompleted(true)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun WalkthroughOverlay(onDismiss: () -> Unit) {
+    var step by remember { mutableStateOf(1) }
+    val totalSteps = 4
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.75f))
+            .clickable(enabled = false) {} // block clicks
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Quick Guide ($step/$totalSteps)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6FB1FC)
+                    )
+                    TextButton(onClick = onDismiss) {
+                        Text("Skip", color = Color(0xFFB0B0B0))
+                    }
+                }
+
+                Spacer(Modifier.height(20.dp))
+
+                val (icon, title, desc) = when (step) {
+                    1 -> Triple(
+                        Icons.Default.Mic,
+                        "The Main Switch",
+                        "Tap the big circle in the center to start listening for sounds. It pulses when active!"
+                    )
+                    2 -> Triple(
+                        Icons.Default.CloudDownload,
+                        "AI Models",
+                        "Download STT, TTS, and LLM models at the bottom to unlock Live Captions and Smart Replies."
+                    )
+                    3 -> Triple(
+                        Icons.Default.Tune,
+                        "Personalize",
+                        "Use 'Sensitivity' to adjust which sounds trigger alerts, and 'Haptics' to change vibration patterns."
+                    )
+                    else -> Triple(
+                        Icons.Default.AutoAwesome,
+                        "You're Ready!",
+                        "Aeris works entirely on your device. Your privacy is safe. Let's get started!"
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF6FB1FC).copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, null, tint = Color(0xFF6FB1FC), modifier = Modifier.size(40.dp))
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    text = title,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1A2340)
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = desc,
+                    fontSize = 15.sp,
+                    color = Color(0xFF6B7A9A),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 22.sp
+                )
+
+                Spacer(Modifier.height(32.dp))
+
+                Button(
+                    onClick = {
+                        if (step < totalSteps) step++ else onDismiss()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6FB1FC))
+                ) {
+                    Text(if (step < totalSteps) "Next" else "Get Started")
+                }
+            }
+        }
+    }
+}
+
+// ── Model Download Section ───────────────────────────────────────────────────
+
+@Composable
+private fun ModelDownloadSection(modelService: ModelService) {
+
+    Text(
+        text = "AI Models",
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        color = Color(0xFF6B7A9A),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+    )
+
+    // Sound detection — YAMNet is bundled in assets now
+    ModelCard(
+        title = "Smart Classification",
+        subtitle = "YAMNet — bundled local model",
+        fileSize = "Built-in",
+        accentColor = Color(0xFF6FB1FC),
+        isLoaded = true,
+        isLoading = false,
+        isDownloading = false,
+        progress = 1f,
+        readyHint = "YAMNet model active and ready",
+        onDownload = { }
+    )
+
+    Spacer(Modifier.height(12.dp))
+
+    // STT — required for sound detection + live captions + conversation listening
+    ModelCard(
+        title = "Live Captions",
+        subtitle = "Whisper Tiny — speech recognition",
+        fileSize = "~40MB",
+        accentColor = Color(0xFF6FB1FC),
+        isLoaded = modelService.isSTTLoaded,
+        isLoading = modelService.isSTTLoading,
+        isDownloading = modelService.isSTTDownloading,
+        progress = modelService.sttDownloadProgress,
+        readyHint = "Speech-to-text ready for captions",
+        onDownload = { modelService.downloadAndLoadSTT() }
+    )
+
+    Spacer(Modifier.height(12.dp))
+
+    // TTS — required for Voice Proxy + Conversation speaking
+    ModelCard(
+        title = "Voice Proxy & Conversation",
+        subtitle = "Piper TTS — text to speech",
+        fileSize = "~60MB",
+        accentColor = Color(0xFF9C6FFC),
+        isLoaded = modelService.isTTSLoaded,
+        isLoading = modelService.isTTSLoading,
+        isDownloading = modelService.isTTSDownloading,
+        progress = modelService.ttsDownloadProgress,
+        readyHint = "Voice Proxy and Conversation speaking ready",
+        onDownload = { modelService.downloadAndLoadTTS() }
+    )
+
+    Spacer(Modifier.height(12.dp))
+
+    // LLM — required for smart replies + summarization
+    ModelCard(
+        title = "AI Smart Replies",
+        subtitle = "SmolLM2 360M — on-device AI",
+        fileSize = "~400MB",
+        accentColor = Color(0xFFFF9A3C),
+        isLoaded = modelService.isLLMLoaded,
+        isLoading = modelService.isLLMLoading,
+        isDownloading = modelService.isLLMDownloading,
+        progress = modelService.llmDownloadProgress,
+        readyHint = "Smart replies and summarization active",
+        onDownload = { modelService.downloadAndLoadLLM() }
+    )
+
+    Spacer(Modifier.height(16.dp))
+
+    // Download All — only when something is missing and nothing is downloading
+    val allLoaded = modelService.isSTTLoaded &&
+            modelService.isTTSLoaded &&
+            modelService.isLLMLoaded
+    val anyDownloading = modelService.isSTTDownloading ||
+            modelService.isTTSDownloading ||
+            modelService.isLLMDownloading
+
+    if (!allLoaded && !anyDownloading) {
+        Button(
+            onClick = { modelService.downloadAndLoadAllModels() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF6FB1FC)
+            )
+        ) {
+            Icon(
+                Icons.Default.CloudDownload,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Download All Models",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "~500MB total • Required for all features",
+            fontSize = 11.sp,
+            color = Color(0xFFB0B0B0),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+// ── Reusable Model Card ──────────────────────────────────────────────────────
+
+@Composable
+private fun ModelCard(
+    title: String,
+    subtitle: String,
+    fileSize: String,
+    accentColor: Color,
+    isLoaded: Boolean,
+    isLoading: Boolean,
+    isDownloading: Boolean,
+    progress: Float,
+    readyHint: String,
+    onDownload: () -> Unit
+) {
+    val green = Color(0xFF6BCB77)
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            // ── Title row ────────────────────────────────────────
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isLoaded) green.copy(alpha = 0.12f)
+                            else accentColor.copy(alpha = 0.12f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isLoaded) Icons.Default.CheckCircle
+                        else Icons.Default.CloudDownload,
+                        contentDescription = null,
+                        tint = if (isLoaded) green else accentColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF1A2340)
+                    )
+                    Text(
+                        text = subtitle,
+                        fontSize = 12.sp,
+                        color = Color(0xFF6B7A9A)
+                    )
+                }
+
+                // Status badge
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(
+                            when {
+                                isLoaded      -> green.copy(alpha = 0.12f)
+                                isDownloading -> accentColor.copy(alpha = 0.12f)
+                                isLoading     -> accentColor.copy(alpha = 0.12f)
+                                else          -> Color(0xFFEEF0F5)
+                            }
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = when {
+                            isLoaded      -> "Ready"
+                            isDownloading -> "Downloading"
+                            isLoading     -> "Loading"
+                            else          -> "Not loaded"
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = when {
+                            isLoaded      -> green
+                            isDownloading -> accentColor
+                            isLoading     -> accentColor
+                            else          -> Color(0xFF6B7A9A)
+                        }
+                    )
+                }
+            }
+
+            // ── Download progress ─────────────────────────────────
+            if (isDownloading) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Downloading…", fontSize = 12.sp, color = Color(0xFF6B7A9A))
+                    Text(
+                        "${(progress * 100).toInt()}%",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = accentColor
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = accentColor,
+                    trackColor = Color(0xFFEEF0F5)
+                )
+            }
+
+            // ── Loading spinner ───────────────────────────────────
+            if (isLoading) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = accentColor,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Loading into memory…",
+                        fontSize = 12.sp,
+                        color = Color(0xFF6B7A9A)
+                    )
+                }
+            }
+
+            // ── Download button ───────────────────────────────────
+            if (!isLoaded && !isDownloading && !isLoading) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(fileSize, fontSize = 12.sp, color = Color(0xFFB0B0B0))
+                    Button(
+                        onClick = onDownload,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accentColor
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Download",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            // ── Ready hint ────────────────────────────────────────
+            if (isLoaded) {
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(green.copy(alpha = 0.08f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(green)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(readyHint, fontSize = 11.sp, color = green)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Quick Action Card ────────────────────────────────────────────────────────
+
+@Composable
+private fun QuickActionCard(
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = modifier
+            .heightIn(min = 76.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(vertical = 14.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = Color(0xFF6FB1FC),
+                modifier = Modifier.size(26.dp)
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF1A2340),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 1
+            )
+        }
+    }
+}
